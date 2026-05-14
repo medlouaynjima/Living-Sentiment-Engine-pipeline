@@ -5,6 +5,9 @@ on:
     - cron: "0 6 * * *"   # Every day at 06:00 UTC
   workflow_dispatch:        # Allow manual trigger
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true   # suppress Node.js 20 deprecation warnings
+
 jobs:
   ingest:
     name: Scrape & Label Headlines
@@ -24,11 +27,13 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Configure DVC remote (local cache — no cloud needed)
-        run: dvc remote add -d localcache /tmp/dvc-cache || true
+      - name: Initialise DVC (first run creates .dvc/)
+        run: |
+          dvc init --no-scm 2>/dev/null || true
+          dvc remote add -d localcache /tmp/dvc-cache 2>/dev/null || true
 
-      - name: Pull existing data
-        run: dvc pull --no-run-cache || true
+      - name: Pull existing data (best-effort)
+        run: dvc pull --no-run-cache 2>/dev/null || echo "Nothing to pull yet — first run"
         env:
           NEWSAPI_KEY: ${{ secrets.NEWSAPI_KEY }}
 
@@ -45,33 +50,34 @@ jobs:
       - name: Count labeled rows
         id: count_rows
         run: |
-          ROWS=$(python -c "import pandas as pd; df = pd.read_csv('data/labeled/dataset.csv'); print(len(df))")
+          ROWS=$(python -c "import pandas as pd; df = pd.read_csv('data/labeled/dataset.csv'); print(len(df))" 2>/dev/null || echo "0")
           echo "total_rows=$ROWS" >> $GITHUB_OUTPUT
           echo "Total labeled rows: $ROWS"
 
-      - name: Push data to DVC remote
-        run: dvc push || true
-
-      - name: Commit DVC lock files
+      - name: Commit data files
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add dvc.lock data/.gitignore
+          git add --ignore-missing data/ dvc.lock dvc.yaml .dvc/config
           git diff --cached --quiet || git commit -m "chore: daily data update $(date +%Y-%m-%d)"
-          git push || true
+          git push || echo "Nothing new to push"
 
       - name: Check retraining threshold
         id: check_retrain
         run: |
           python -c "
           import pandas as pd, sys
-          df = pd.read_csv('data/labeled/dataset.csv')
-          threshold = 500
-          if len(df) >= threshold:
-              print('Threshold met — triggering retraining')
-              sys.exit(0)
-          else:
-              print(f'Not enough data: {len(df)} / {threshold}')
+          try:
+              df = pd.read_csv('data/labeled/dataset.csv')
+              threshold = 500
+              if len(df) >= threshold:
+                  print(f'Threshold met ({len(df)} rows) — triggering retraining')
+                  sys.exit(0)
+              else:
+                  print(f'Not enough data: {len(df)} / {threshold}')
+                  sys.exit(1)
+          except FileNotFoundError:
+              print('No dataset yet')
               sys.exit(1)
           " && echo "should_retrain=true" >> $GITHUB_OUTPUT || echo "should_retrain=false" >> $GITHUB_OUTPUT
 
@@ -86,3 +92,4 @@ jobs:
               workflow_id: 'retrain_pipeline.yml',
               ref: 'main',
             });
+
