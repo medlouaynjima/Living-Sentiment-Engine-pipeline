@@ -1,0 +1,88 @@
+name: Daily Data Ingestion
+
+on:
+  schedule:
+    - cron: "0 6 * * *"   # Every day at 06:00 UTC
+  workflow_dispatch:        # Allow manual trigger
+
+jobs:
+  ingest:
+    name: Scrape & Label Headlines
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Configure DVC remote (local cache — no cloud needed)
+        run: dvc remote add -d localcache /tmp/dvc-cache || true
+
+      - name: Pull existing data
+        run: dvc pull --no-run-cache || true
+        env:
+          NEWSAPI_KEY: ${{ secrets.NEWSAPI_KEY }}
+
+      - name: Scrape today's headlines
+        run: python src/ingestion/newsapi_scraper.py
+        env:
+          NEWSAPI_KEY: ${{ secrets.NEWSAPI_KEY }}
+
+      - name: Label new headlines
+        run: python src/labeling/label_pipeline.py
+        env:
+          NEWSAPI_KEY: ${{ secrets.NEWSAPI_KEY }}
+
+      - name: Count labeled rows
+        id: count_rows
+        run: |
+          ROWS=$(python -c "import pandas as pd; df = pd.read_csv('data/labeled/dataset.csv'); print(len(df))")
+          echo "total_rows=$ROWS" >> $GITHUB_OUTPUT
+          echo "Total labeled rows: $ROWS"
+
+      - name: Push data to DVC remote
+        run: dvc push || true
+
+      - name: Commit DVC lock files
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add dvc.lock data/.gitignore
+          git diff --cached --quiet || git commit -m "chore: daily data update $(date +%Y-%m-%d)"
+          git push || true
+
+      - name: Check retraining threshold
+        id: check_retrain
+        run: |
+          python -c "
+          import pandas as pd, sys
+          df = pd.read_csv('data/labeled/dataset.csv')
+          threshold = 500
+          if len(df) >= threshold:
+              print('Threshold met — triggering retraining')
+              sys.exit(0)
+          else:
+              print(f'Not enough data: {len(df)} / {threshold}')
+              sys.exit(1)
+          " && echo "should_retrain=true" >> $GITHUB_OUTPUT || echo "should_retrain=false" >> $GITHUB_OUTPUT
+
+      - name: Trigger retraining workflow
+        if: steps.check_retrain.outputs.should_retrain == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'retrain_pipeline.yml',
+              ref: 'main',
+            });

@@ -1,0 +1,95 @@
+name: Retrain Pipeline
+
+on:
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: "Why was retraining triggered?"
+        required: false
+        default: "Manual trigger"
+
+jobs:
+  retrain:
+    name: Train → Validate → Promote
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Pull latest data
+        run: dvc pull || true
+
+      - name: Fine-tune FinBERT
+        run: python src/training/train.py
+        env:
+          MLFLOW_TRACKING_URI: "sqlite:///mlflow.db"
+
+      - name: Run validation gate
+        id: validate
+        run: python src/validation/validate.py
+        continue-on-error: true
+
+      - name: Check drift
+        run: python src/monitoring/drift_monitor.py || true
+
+      - name: Report validation outcome
+        run: |
+          if [ -f reports/validation_report.json ]; then
+            python -c "
+          import json
+          with open('reports/validation_report.json') as f:
+              r = json.load(f)
+          passed = r.get('overall_passed', False)
+          checks = r.get('checks', {})
+          print('=== VALIDATION REPORT ===')
+          for name, data in checks.items():
+              icon = '✅' if data.get('passed') else '❌'
+              print(f'{icon} {name}: {data}')
+          print(f'Overall: {\"PASSED\" if passed else \"FAILED\"}')
+            "
+          fi
+
+      - name: Push promoted model to DVC
+        if: steps.validate.outcome == 'success'
+        run: dvc push || true
+
+      - name: Commit champion model lock
+        if: steps.validate.outcome == 'success'
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add dvc.lock models/ reports/
+          git diff --cached --quiet || git commit -m "feat: promote new champion model $(date +%Y-%m-%d)"
+          git push || true
+
+      - name: Fail if validation didn't pass
+        if: steps.validate.outcome != 'success'
+        run: |
+          echo "❌ Validation gate failed — champion NOT promoted"
+          exit 1
+
+  lint-and-test:
+    name: Lint & Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Lint
+        run: ruff check . --select E,W,F --ignore E501
+      - name: Unit tests
+        run: pytest tests/ -v --tb=short -x

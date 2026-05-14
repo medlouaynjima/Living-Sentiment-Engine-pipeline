@@ -1,0 +1,62 @@
+# ─────────────────────────────────────────────
+#  The Living Sentiment Engine — Central Config
+# ─────────────────────────────────────────────
+
+newsapi:
+  api_key: "${NEWSAPI_KEY}"          # set via environment variable
+  keywords:
+    - "stock market"
+    - "earnings"
+    - "Federal Reserve"
+    - "inflation"
+    - "NVIDIA"
+    - "OpenAI"
+    - "Apple"
+    - "Tesla"
+    - "Bitcoin"
+    - "S&P 500"
+  language: "en"
+  page_size: 100                      # max per request (free tier)
+  max_pages: 1                        # free tier: 1 page per keyword
+
+data:
+  raw_dir: "data/raw"
+  labeled_dir: "data/labeled"
+  labeled_file: "data/labeled/dataset.csv"
+
+model:
+  base_model: "ProsusAI/finbert"
+  candidate_dir: "models/candidate"
+  champion_dir: "models/champion"
+  labels: ["positive", "negative", "neutral"]
+
+training:
+  epochs: 3
+  batch_size: 16
+  learning_rate: 2.0e-5
+  max_length: 128
+  test_size: 0.2
+  seed: 42
+
+retraining:
+  min_new_rows: 500                   # trigger retraining threshold
+  f1_drop_threshold: 0.75             # also retrain if F1 falls below this
+
+validation:
+  min_f1: 0.70                        # reject model if below
+  max_entity_dominance: 0.40          # bias: no entity > 40% of data
+  max_class_f1_variance: 0.15         # bias: per-class F1 variance
+
+monitoring:
+  drift_threshold: 0.30               # Evidently drift score triggers retrain flag
+  reference_days: 7                   # how many days define the reference window
+  current_days: 7                     # how many days define the current window
+  reports_dir: "reports/drift"
+
+serving:
+  host: "0.0.0.0"
+  port: 8000
+
+mlflow:
+  experiment_name: "living-sentiment-engine"
+  tracking_uri: "sqlite:///mlflow.db"  # local default; override with MLFLOW_TRACKING_URI env var
