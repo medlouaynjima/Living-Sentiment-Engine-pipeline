@@ -49,10 +49,6 @@ copy .env.example .env
 # .env already contains NEWSAPI_KEY — edit if needed
 ```
 
-Set it as an environment variable:
-```powershell
-$env:NEWSAPI_KEY = "06cd94ebf1284c94b17842a13beb6640"
-```
 
 ### 3. Run the pipeline manually
 
