@@ -61,7 +61,8 @@ jobs:
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add --ignore-missing data/ dvc.lock dvc.yaml .dvc/config
+          # Add files safely; ignore errors if some files (like .dvc/config) don't exist yet
+          git add data/ dvc.lock dvc.yaml .dvc/config 2>/dev/null || true
           git diff --cached --quiet || git commit -m "chore: daily data update $(date +%Y-%m-%d)"
           git push || echo "Nothing new to push"
 
