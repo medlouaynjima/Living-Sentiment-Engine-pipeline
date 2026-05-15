@@ -13,6 +13,9 @@ jobs:
     name: Scrape & Label Headlines
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: write  # Required to push commits back to the repo
+      actions: write   # Required to trigger the retrain workflow
 
     steps:
       - name: Checkout repository
