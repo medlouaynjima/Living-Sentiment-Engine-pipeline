@@ -1,9 +1,9 @@
 """
 drift_monitor.py
 ────────────────
-Uses Evidently AI to detect data drift between:
-  - Reference dataset: headlines from the first week of data
-  - Current dataset: headlines from the last 7 days
+Uses Evidently AI (v0.7+) to detect data drift between:
+  - Reference dataset: first chronological half of labeled data
+  - Current dataset:   second chronological half (or last N days)
 
 Outputs:
   - reports/drift/drift_report_YYYY-MM-DD.html
@@ -20,19 +20,11 @@ import argparse
 import json
 import logging
 import sys
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from pathlib import Path
 
 import pandas as pd
 import yaml
-from evidently import ColumnMapping
-from evidently.metric_preset import TextOverviewPreset
-from evidently.metrics import (
-    ColumnDriftMetric,
-    DatasetDriftMetric,
-    DatasetMissingValuesSummaryMetric,
-)
-from evidently.report import Report
 
 logging.basicConfig(
     level=logging.INFO,
@@ -41,7 +33,25 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
+# ── Evidently 0.7+ imports (preset-based API) ────────────────────────────────
+_EVIDENTLY_OK = False
+try:
+    from evidently.report import Report
+    from evidently.metric_preset import DataDriftPreset, DataQualityPreset
+    _EVIDENTLY_OK = True
+    log.info("Evidently loaded (preset API)")
+except ImportError:
+    log.warning("Evidently preset API not available — will use scipy fallback")
 
+# ── Scipy fallback ────────────────────────────────────────────────────────────
+try:
+    from scipy import stats as _scipy_stats
+    _SCIPY_OK = True
+except ImportError:
+    _SCIPY_OK = False
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 def load_config(path: str) -> dict:
     with open(path) as f:
         return yaml.safe_load(f)
@@ -52,17 +62,16 @@ def load_labeled_data(labeled_path: Path) -> pd.DataFrame:
         raise FileNotFoundError(f"Labeled dataset not found: {labeled_path}")
     df = pd.read_csv(labeled_path, dtype=str).dropna(subset=["title"])
     df["publishedAt"] = pd.to_datetime(df["publishedAt"], errors="coerce")
-    df = df.sort_values("publishedAt")
+    df = df.sort_values("publishedAt").reset_index(drop=True)
     return df
 
 
 def split_reference_current(df: pd.DataFrame, reference_days: int, current_days: int):
     now = df["publishedAt"].max()
     if pd.isna(now):
-        # Fall back to chronological split if dates are unavailable
         n = len(df)
         split = max(1, n // 2)
-        return df.iloc[:split], df.iloc[split:]
+        return df.iloc[:split].copy(), df.iloc[split:].copy()
 
     current_start = now - timedelta(days=current_days)
     reference_end = current_start
@@ -71,7 +80,6 @@ def split_reference_current(df: pd.DataFrame, reference_days: int, current_days:
     reference = df[(df["publishedAt"] >= reference_start) & (df["publishedAt"] < reference_end)]
     current = df[df["publishedAt"] >= current_start]
 
-    # Fallback: if either split is empty, use chronological halves
     if len(reference) < 10 or len(current) < 10:
         log.warning(
             "Not enough data for time-based split (ref=%d, cur=%d). Using chronological halves.",
@@ -82,7 +90,16 @@ def split_reference_current(df: pd.DataFrame, reference_days: int, current_days:
         reference = df.iloc[:split]
         current = df.iloc[split:]
 
-    return reference, current
+    return reference.copy(), current.copy()
+
+
+def _add_numeric_features(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+    df["title_length"] = df["title"].str.len().fillna(0).astype(float)
+    df["word_count"] = df["title"].str.split().str.len().fillna(0).astype(float)
+    label_map = {"positive": 1.0, "negative": -1.0, "neutral": 0.0}
+    df["label_numeric"] = df["label"].map(label_map).fillna(0.0)
+    return df
 
 
 def compute_label_distribution(df: pd.DataFrame) -> dict:
@@ -90,52 +107,89 @@ def compute_label_distribution(df: pd.DataFrame) -> dict:
     return {k: round(v, 4) for k, v in counts.items()}
 
 
-def run_evidently_report(reference: pd.DataFrame, current: pd.DataFrame, report_path: Path):
-    """Run Evidently text + drift report."""
-    # Evidently works better with numeric features; use label encoding + title length
-    for frame in [reference, current]:
-        frame["title_length"] = frame["title"].str.len().fillna(0).astype(float)
-        frame["word_count"] = frame["title"].str.split().str.len().fillna(0).astype(float)
-        label_map = {"positive": 1, "negative": -1, "neutral": 0}
-        frame["label_numeric"] = frame["label"].map(label_map).fillna(0).astype(float)
+# ── Evidently 0.7 report ──────────────────────────────────────────────────────
+def run_evidently_report(reference: pd.DataFrame, current: pd.DataFrame, report_path: Path) -> float:
+    """Run Evidently DataDriftPreset report. Returns drift share (0-1)."""
+    ref_feat = _add_numeric_features(reference)[["title_length", "word_count", "label_numeric"]]
+    cur_feat = _add_numeric_features(current)[["title_length", "word_count", "label_numeric"]]
 
-    report = Report(metrics=[
-        DatasetDriftMetric(),
-        DatasetMissingValuesSummaryMetric(),
-        ColumnDriftMetric(column_name="title_length"),
-        ColumnDriftMetric(column_name="word_count"),
-        ColumnDriftMetric(column_name="label_numeric"),
-    ])
-
-    column_mapping = ColumnMapping(
-        target="label_numeric",
-        numerical_features=["title_length", "word_count", "label_numeric"],
-    )
-
-    report.run(
-        reference_data=reference,
-        current_data=current,
-        column_mapping=column_mapping,
-    )
+    report = Report(metrics=[DataDriftPreset()])
+    report.run(reference_data=ref_feat, current_data=cur_feat)
     report.save_html(str(report_path))
-    log.info("Drift report saved → %s", report_path)
-    return report
+    log.info("Evidently drift report saved → %s", report_path)
 
-
-def extract_drift_score(report: Report) -> float:
-    """Extract the overall dataset drift share from the Evidently report."""
+    # Extract drift score from the result dict
+    drift_score = 0.0
     try:
-        result = report.as_dict()
-        for metric in result.get("metrics", []):
-            if metric.get("metric") == "DatasetDriftMetric":
-                return float(metric["result"].get("share_of_drifted_columns", 0.0))
+        result_dict = report.as_dict()
+        for metric in result_dict.get("metrics", []):
+            metric_id = str(metric.get("metric") or metric.get("metric_id") or "")
+            if "DatasetDriftMetric" in metric_id or "DataDrift" in metric_id:
+                res = metric.get("result", {})
+                score = (
+                    res.get("share_of_drifted_columns")
+                    or res.get("drift_share")
+                    or res.get("share_of_drifted_features")
+                )
+                if score is not None:
+                    drift_score = float(score)
+                    break
     except Exception as exc:
-        log.warning("Could not extract drift score: %s", exc)
-    return 0.0
+        log.warning("Could not extract drift score from Evidently result: %s", exc)
+
+    return drift_score
 
 
+# ── Scipy fallback report ─────────────────────────────────────────────────────
+def run_scipy_report(reference: pd.DataFrame, current: pd.DataFrame, report_path: Path) -> float:
+    """Simple KS-test drift detection. Generates a plain HTML summary."""
+    ref_feat = _add_numeric_features(reference)
+    cur_feat = _add_numeric_features(current)
+
+    features = ["title_length", "word_count", "label_numeric"]
+    results = []
+    drifted = 0
+
+    for feat in features:
+        ks_stat, p_value = _scipy_stats.ks_2samp(ref_feat[feat], cur_feat[feat])
+        is_drifted = p_value < 0.05
+        if is_drifted:
+            drifted += 1
+        results.append({
+            "feature": feat,
+            "ks_statistic": round(float(ks_stat), 4),
+            "p_value": round(float(p_value), 4),
+            "drifted": is_drifted,
+        })
+        log.info("  %s — KS=%.4f  p=%.4f  %s", feat, ks_stat, p_value,
+                 "⚠️ DRIFT" if is_drifted else "✅ OK")
+
+    drift_share = drifted / len(features)
+
+    # Write a minimal HTML report
+    rows = "".join(
+        f"<tr><td>{r['feature']}</td><td>{r['ks_statistic']}</td>"
+        f"<td>{r['p_value']}</td><td>{'⚠️ YES' if r['drifted'] else '✅ NO'}</td></tr>"
+        for r in results
+    )
+    html = f"""<!DOCTYPE html><html><head><title>Drift Report</title>
+<style>body{{font-family:sans-serif;padding:2rem}}
+table{{border-collapse:collapse;width:100%}}
+th,td{{border:1px solid #ccc;padding:8px;text-align:left}}
+th{{background:#f4f4f4}}</style></head>
+<body><h1>📊 Drift Monitor Report (scipy fallback)</h1>
+<p>Reference rows: {len(reference)} | Current rows: {len(current)}</p>
+<p>Drift share: <strong>{drift_share:.2%}</strong></p>
+<table><tr><th>Feature</th><th>KS Statistic</th><th>p-value</th><th>Drifted?</th></tr>
+{rows}</table></body></html>"""
+    report_path.write_text(html, encoding="utf-8")
+    log.info("Scipy drift report saved → %s", report_path)
+    return drift_share
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 def main():
-    parser = argparse.ArgumentParser(description="Run Evidently drift monitoring.")
+    parser = argparse.ArgumentParser(description="Run drift monitoring.")
     parser.add_argument("--config", default="configs/config.yaml")
     args = parser.parse_args()
 
@@ -149,7 +203,7 @@ def main():
     report_html_path = reports_dir / f"drift_report_{today}.html"
     summary_json_path = reports_dir / f"drift_summary_{today}.json"
 
-    # ── Load and split data ───────────────────────────────────────────────────
+    # ── Load and split ────────────────────────────────────────────────────────
     df = load_labeled_data(labeled_path)
     log.info("Total labeled rows: %d", len(df))
 
@@ -160,9 +214,19 @@ def main():
     )
     log.info("Reference: %d rows  |  Current: %d rows", len(reference), len(current))
 
-    # ── Run Evidently ─────────────────────────────────────────────────────────
-    report = run_evidently_report(reference, current, report_html_path)
-    drift_score = extract_drift_score(report)
+    # ── Run report ────────────────────────────────────────────────────────────
+    if _EVIDENTLY_OK:
+        try:
+            drift_score = run_evidently_report(reference, current, report_html_path)
+        except Exception as exc:
+            log.warning("Evidently report failed (%s) — falling back to scipy.", exc)
+            drift_score = run_scipy_report(reference, current, report_html_path) if _SCIPY_OK else 0.0
+    elif _SCIPY_OK:
+        drift_score = run_scipy_report(reference, current, report_html_path)
+    else:
+        log.error("Neither Evidently nor scipy available. Install scipy: pip install scipy")
+        sys.exit(2)
+
     drift_threshold = mon_cfg["drift_threshold"]
     drift_detected = drift_score > drift_threshold
 
@@ -170,7 +234,7 @@ def main():
     ref_dist = compute_label_distribution(reference)
     cur_dist = compute_label_distribution(current)
 
-    # ── Write summary ─────────────────────────────────────────────────────────
+    # ── Write summary JSON ────────────────────────────────────────────────────
     summary = {
         "date": today,
         "drift_score": drift_score,
@@ -181,6 +245,7 @@ def main():
         "reference_label_distribution": ref_dist,
         "current_label_distribution": cur_dist,
         "report_html": str(report_html_path),
+        "backend": "evidently" if _EVIDENTLY_OK else "scipy",
     }
     summary_json_path.write_text(json.dumps(summary, indent=2))
     log.info("Summary saved → %s", summary_json_path)
