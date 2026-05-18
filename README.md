@@ -82,7 +82,7 @@ python src/monitoring/drift_monitor.py
 dvc repro
 ```
 
-### 4. Launch the stack with Docker
+### 4. Launch Locally with Docker
 
 ```bash
 docker-compose up --build
@@ -93,6 +93,11 @@ docker-compose up --build
 | FastAPI Docs | http://localhost:8000/docs |
 | MLflow UI | http://localhost:5000 |
 | Streamlit Dashboard | http://localhost:8501 |
+
+### 5. ☁️ Deploy to Microsoft Azure
+Ready for production? We have automated the cloud deployment process using Azure Virtual Machines and the Custom Script Extension.
+
+👉 **[View the Azure Deployment Guide](deploy/deploy_to_azure.md)**
 
 ### 5. Run tests
 
