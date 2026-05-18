@@ -8,7 +8,7 @@ services:
       dockerfile: src/serving/Dockerfile
     container_name: sentiment-api
     ports:
-      - "8000:8000"
+      - "8000:7860"
     environment:
       - NEWSAPI_KEY=${NEWSAPI_KEY}
       - CONFIG_PATH=configs/config.yaml
@@ -21,7 +21,7 @@ services:
       - mlflow
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:7860/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -58,7 +58,7 @@ services:
       - "8501:8501"
     environment:
       - CONFIG_PATH=configs/config.yaml
-      - API_BASE_URL=http://api:8000
+      - API_BASE_URL=http://api:7860
     volumes:
       - .:/app
     depends_on:
