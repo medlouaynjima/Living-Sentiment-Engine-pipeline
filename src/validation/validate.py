@@ -59,7 +59,7 @@ def load_model_pipeline(model_dir: Path):
 
 def compute_f1_per_class(nlp, df: pd.DataFrame) -> dict:
     """Run inference on validation headlines and compute per-class F1."""
-    label_map = {"positive": 0, "negative": 1, "neutral": 2}
+
 
 
     # FinBERT label aliases
