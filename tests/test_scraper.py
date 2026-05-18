@@ -1,11 +1,10 @@
 """
 test_scraper.py — Unit tests for newsapi_scraper.py
 """
-from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pandas as pd
-import pytest
+
 
 from src.ingestion.newsapi_scraper import deduplicate, fetch_headlines, save_to_csv
 

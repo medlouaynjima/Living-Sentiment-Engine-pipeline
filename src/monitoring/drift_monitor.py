@@ -37,7 +37,7 @@ log = logging.getLogger(__name__)
 _EVIDENTLY_OK = False
 try:
     from evidently.report import Report
-    from evidently.metric_preset import DataDriftPreset, DataQualityPreset
+    from evidently.metric_preset import DataDriftPreset
     _EVIDENTLY_OK = True
     log.info("Evidently loaded (preset API)")
 except ImportError:

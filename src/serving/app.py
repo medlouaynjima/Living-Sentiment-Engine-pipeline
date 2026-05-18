@@ -184,19 +184,19 @@ def batch_predict(req: BatchPredictRequest):
 def metrics():
     uptime = time.time() - _stats["start_time"]
     lines = [
-        f"# HELP sentiment_requests_total Total prediction requests",
-        f"# TYPE sentiment_requests_total counter",
+        "# HELP sentiment_requests_total Total prediction requests",
+        "# TYPE sentiment_requests_total counter",
         f'sentiment_requests_total {_stats["requests_total"]}',
-        f"# HELP sentiment_label_total Predictions by label",
-        f"# TYPE sentiment_label_total counter",
+        "# HELP sentiment_label_total Predictions by label",
+        "# TYPE sentiment_label_total counter",
         f'sentiment_label_total{{label="positive"}} {_stats["requests_positive"]}',
         f'sentiment_label_total{{label="negative"}} {_stats["requests_negative"]}',
         f'sentiment_label_total{{label="neutral"}} {_stats["requests_neutral"]}',
-        f"# HELP sentiment_errors_total Total prediction errors",
-        f"# TYPE sentiment_errors_total counter",
+        "# HELP sentiment_errors_total Total prediction errors",
+        "# TYPE sentiment_errors_total counter",
         f'sentiment_errors_total {_stats["errors_total"]}',
-        f"# HELP sentiment_uptime_seconds Service uptime in seconds",
-        f"# TYPE sentiment_uptime_seconds gauge",
+        "# HELP sentiment_uptime_seconds Service uptime in seconds",
+        "# TYPE sentiment_uptime_seconds gauge",
         f"sentiment_uptime_seconds {uptime:.1f}",
     ]
     return "\n".join(lines) + "\n"

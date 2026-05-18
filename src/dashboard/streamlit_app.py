@@ -13,8 +13,8 @@ Usage:
 
 import json
 import os
-import time
-from datetime import date, datetime, timedelta
+
+from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
@@ -106,7 +106,7 @@ with st.sidebar:
 
     health = api_health()
     if health:
-        st.success(f"API Online ✅")
+        st.success("API Online ✅")
         st.caption(f"Model v{health.get('model_version', '?')}")
         st.caption(f"Uptime: {health.get('uptime_seconds', 0):.0f}s")
     else:

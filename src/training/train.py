@@ -19,7 +19,6 @@ from pathlib import Path
 
 import mlflow
 import mlflow.pytorch
-import numpy as np
 import pandas as pd
 import torch
 import yaml
@@ -128,7 +127,7 @@ def main():
 
     log.info("Loaded %d labeled samples.", len(df))
     texts = df["title"].tolist()
-    labels = [LABEL2ID[l] for l in df["label"]]
+    labels = [LABEL2ID[lbl] for lbl in df["label"]]
 
     train_cfg = cfg["training"]
     X_train, X_val, y_train, y_val = train_test_split(

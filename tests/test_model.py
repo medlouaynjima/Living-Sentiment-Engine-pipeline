@@ -38,7 +38,7 @@ class TestLabelHeadlines:
         return pd.DataFrame({"title": titles})
 
     def test_output_has_label_and_confidence_columns(self):
-        import pandas as pd
+
         from src.labeling.label_pipeline import label_headlines
 
         mock_pipeline = MagicMock()
