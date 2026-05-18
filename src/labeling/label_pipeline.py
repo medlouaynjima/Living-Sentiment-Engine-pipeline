@@ -33,9 +33,9 @@ LABEL_MAP = {
     "negative": "negative",
     "neutral": "neutral",
     # FinBERT sometimes returns these aliases
-    "LABEL_0": "positive",
-    "LABEL_1": "negative",
-    "LABEL_2": "neutral",
+    "label_0": "positive",
+    "label_1": "negative",
+    "label_2": "neutral",
 }
 
 
