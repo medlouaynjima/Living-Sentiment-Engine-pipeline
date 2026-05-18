@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 import pandas as pd
 
 
-from src.ingestion.newsapi_scraper import deduplicate, fetch_headlines, save_to_csv
+from src.ingestion.newsapi_scraper import deduplicate, fetch_everything_window, save_to_csv
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -71,14 +71,14 @@ class TestFetchHeadlines:
             "status": "ok",
         }
         cfg = {"newsapi": {"language": "en", "page_size": 100}}
-        result = fetch_headlines(mock_client, "Apple", cfg, "2024-05-01")
+        result = fetch_everything_window(mock_client, "Apple", cfg, days_back=7)
         assert len(result) == 2
 
     def test_returns_empty_on_error(self):
         mock_client = MagicMock()
         mock_client.get_everything.side_effect = Exception("API error")
         cfg = {"newsapi": {"language": "en", "page_size": 100}}
-        result = fetch_headlines(mock_client, "Apple", cfg, "2024-05-01")
+        result = fetch_everything_window(mock_client, "Apple", cfg, days_back=7)
         assert result == []
 
 
