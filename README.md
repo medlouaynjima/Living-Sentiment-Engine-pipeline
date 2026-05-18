@@ -2,8 +2,17 @@
 
 > A production-grade MLOps pipeline for real-time financial news sentiment analysis powered by FinBERT.
 
-[![Daily Ingest](https://github.com/YOUR_ORG/mlops/actions/workflows/daily_ingest.yml/badge.svg)](https://github.com/YOUR_ORG/mlops/actions/workflows/daily_ingest.yml)
-[![Retrain Pipeline](https://github.com/YOUR_ORG/mlops/actions/workflows/retrain_pipeline.yml/badge.svg)](https://github.com/YOUR_ORG/mlops/actions/workflows/retrain_pipeline.yml)
+[![Daily Ingest](https://github.com/medlouaynjima/Living-Sentiment-Engine-pipeline/actions/workflows/daily_ingest.yml/badge.svg)](https://github.com/medlouaynjima/Living-Sentiment-Engine-pipeline/actions/workflows/daily_ingest.yml)
+[![Retrain Pipeline](https://github.com/medlouaynjima/Living-Sentiment-Engine-pipeline/actions/workflows/retrain_pipeline.yml/badge.svg)](https://github.com/medlouaynjima/Living-Sentiment-Engine-pipeline/actions/workflows/retrain_pipeline.yml)
+
+---
+
+## ☁️ Live Cloud Demo
+The system is deployed on Microsoft Azure using a `Standard B2s_v2` instance (2 vCPUs, 8 GB RAM) located in **Sweden Central**, fully automated via Docker and daily cron pipelines.
+
+* 📊 **Interactive Streamlit Dashboard:** [http://20.91.226.116:8501](http://20.91.226.116:8501)
+* 🧠 **FastAPI Inference Documentation:** [http://20.91.226.116:8000/docs](http://20.91.226.116:8000/docs)
+* 🗃️ **MLflow Model Registry UI:** [http://20.91.226.116:5000](http://20.91.226.116:5000)
 
 ---
 
@@ -21,7 +30,7 @@ Drift Monitor ↔ Trigger → Fine-tune → Validation Gate → MLflow Registry 
 |---|---|
 | Model | `ProsusAI/finbert` (HuggingFace) |
 | Entity Extraction | `spaCy` (`en_core_web_sm`) |
-| Orchestration | GitHub Actions (Drift-Triggered & Cron) |
+| Orchestration | Azure Cron Scheduler + GitHub Actions (Drift-Triggered & Cron) |
 | Data Versioning | DVC |
 | Experiment Tracking | MLflow + MLflow Model Registry |
 | Serving | FastAPI + Uvicorn |
@@ -36,6 +45,7 @@ Drift Monitor ↔ Trigger → Fine-tune → Validation Gate → MLflow Registry 
 1. **Autonomous Drift Retraining:** The CI/CD pipeline evaluates data drift daily. If the market vocabulary changes significantly, the system autonomously triggers the retraining pipeline.
 2. **Entity-Aware Sentiment:** Uses `spaCy` Named Entity Recognition (NER) to extract exactly *who* the sentiment is about (e.g., Apple, Elon Musk), visualized in a dedicated Dashboard tab.
 3. **MLflow Model Registry & Rollback:** The validation gate automatically registers Champion models in MLflow. If a candidate degrades performance, it is blocked (preventing regression).
+4. **Cloud Infrastructure Tuning:** VM optimized with a **4GB SSD Swap file** to prevent deep-learning memory overhead crashes and mapped internal FastAPI ports to bypass heavy rebuild latency.
 
 ---
 
