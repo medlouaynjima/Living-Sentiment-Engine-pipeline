@@ -101,3 +101,11 @@ When you are done testing and want to destroy the server so you aren't charged:
 ```bash
 az group delete --name mlops-rg --yes --no-wait
 ```
+
+---
+
+## 🛠️ Low-Level Virtual Machine Optimizations
+During real-world deployment on constrained VMs (such as Azure B-series instances), we implemented these production-grade optimizations:
+1. **Emergency Swap Allocation:** Configured and activated a **4GB SSD-backed Swap File** (`/swapfile`) to handle PyTorch model compilation spikes and avoid Out of Memory (OOM) process termination.
+2. **Compile-Bypass Port Mapping:** Instantiated external port forwarding (`8000:7860`) inside `docker-compose.yml` to avoid continuous Docker image rebuild latencies while preserving the standard API communication architecture.
+
