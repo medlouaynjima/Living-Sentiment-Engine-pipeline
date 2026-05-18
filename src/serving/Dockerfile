@@ -21,9 +21,9 @@ COPY models/ ./models/
 # Create necessary directories
 RUN mkdir -p data/raw data/labeled reports/drift
 
-EXPOSE 7860
+EXPOSE 8000
 
 ENV CONFIG_PATH=configs/config.yaml
 ENV PYTHONPATH=/app
 
-CMD ["uvicorn", "src.serving.app:app", "--host", "0.0.0.0", "--port", "7860", "--workers", "2"]
+CMD ["uvicorn", "src.serving.app:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
