@@ -10,9 +10,9 @@
 ## Architecture
 
 ```
-NewsAPI → Scraper → FinBERT Labeler → Fine-tune → Validation Gate → FastAPI → Streamlit
-                                                       ↑                  ↓
-                                              GitHub Actions        Evidently Drift
+NewsAPI & Yahoo Finance → Scraper → FinBERT Labeler (spaCy NER) 
+                                      ↓
+Drift Monitor ↔ Trigger → Fine-tune → Validation Gate → MLflow Registry → FastAPI → Streamlit
 ```
 
 ## Tech Stack
@@ -20,14 +20,22 @@ NewsAPI → Scraper → FinBERT Labeler → Fine-tune → Validation Gate → Fa
 | Layer | Tool |
 |---|---|
 | Model | `ProsusAI/finbert` (HuggingFace) |
-| Orchestration | GitHub Actions (cron daily + on-demand) |
+| Entity Extraction | `spaCy` (`en_core_web_sm`) |
+| Orchestration | GitHub Actions (Drift-Triggered & Cron) |
 | Data Versioning | DVC |
-| Experiment Tracking | MLflow |
+| Experiment Tracking | MLflow + MLflow Model Registry |
 | Serving | FastAPI + Uvicorn |
 | Containerization | Docker + docker-compose |
 | Monitoring | Evidently AI |
 | Dashboard | Streamlit + Plotly |
-| News Data | NewsAPI (free tier) |
+| News Data | NewsAPI (free tier) + Yahoo Finance (`yfinance`) |
+
+---
+
+## 🔥 Senior-Level Features Added
+1. **Autonomous Drift Retraining:** The CI/CD pipeline evaluates data drift daily. If the market vocabulary changes significantly, the system autonomously triggers the retraining pipeline.
+2. **Entity-Aware Sentiment:** Uses `spaCy` Named Entity Recognition (NER) to extract exactly *who* the sentiment is about (e.g., Apple, Elon Musk), visualized in a dedicated Dashboard tab.
+3. **MLflow Model Registry & Rollback:** The validation gate automatically registers Champion models in MLflow. If a candidate degrades performance, it is blocked (preventing regression).
 
 ---
 
@@ -40,6 +48,7 @@ git clone https://github.com/YOUR_ORG/mlops.git
 cd mlops
 python -m venv .venv && .venv\Scripts\activate   # Windows
 pip install -r requirements.txt
+python -m spacy download en_core_web_sm
 ```
 
 ### 2. Configure your API key
@@ -53,10 +62,11 @@ copy .env.example .env
 ### 3. Run the pipeline manually
 
 ```bash
-# Step 1: Scrape today's headlines
+# Step 1: Scrape today's headlines from multiple sources
 python src/ingestion/newsapi_scraper.py
+python src/ingestion/yfinance_scraper.py
 
-# Step 2: Label with FinBERT (zero-shot)
+# Step 2: Label with FinBERT & Extract Entities
 python src/labeling/label_pipeline.py
 
 # Step 3: Fine-tune (once you have ≥50 rows; best with ≥500)
@@ -111,6 +121,7 @@ mlops/
 │   └── validation_report.json
 ├── src/
 │   ├── ingestion/newsapi_scraper.py
+│   ├── ingestion/yfinance_scraper.py
 │   ├── labeling/label_pipeline.py
 │   ├── training/train.py
 │   ├── validation/validate.py
@@ -147,7 +158,13 @@ Add these in your repo's **Settings → Secrets → Actions**:
 ```
 Response:
 ```json
-{ "headline": "...", "label": "positive", "confidence": 0.9412, "model_version": "abc12345" }
+{ 
+  "headline": "Apple beats Q2 earnings expectations", 
+  "label": "positive", 
+  "confidence": 0.9412, 
+  "model_version": "abc12345",
+  "entities": ["Apple"]
+}
 ```
 
 ### `POST /batch_predict`

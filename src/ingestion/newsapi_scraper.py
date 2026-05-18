@@ -22,6 +22,12 @@ from pathlib import Path
 import yaml
 from newsapi import NewsApiClient
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 # ── Logging ────────────────────────────────────────────────────────────────
 logging.basicConfig(
     level=logging.INFO,
