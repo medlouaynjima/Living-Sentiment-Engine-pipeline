@@ -76,6 +76,17 @@ def _load_model():
 
 _nlp, _model_version = _load_model()
 
+_spacy_nlp = None
+try:
+    import spacy
+    _spacy_nlp = spacy.load("en_core_web_sm")
+except OSError:
+    import spacy.cli
+    spacy.cli.download("en_core_web_sm")
+    _spacy_nlp = spacy.load("en_core_web_sm")
+except ImportError:
+    pass
+
 # ── Prometheus-style counters ─────────────────────────────────────────────────
 _stats = {
     "requests_total": 0,
@@ -112,6 +123,7 @@ class PredictResponse(BaseModel):
     label: str
     confidence: float
     model_version: str
+    entities: List[str] = []
 
 
 class BatchPredictRequest(BaseModel):
@@ -144,11 +156,17 @@ def predict(req: PredictRequest):
         label = LABEL_ALIAS.get(result["label"].lower(), "neutral")
         confidence = round(result["score"], 4)
         _stats[f"requests_{label}"] += 1
+        ents = []
+        if _spacy_nlp:
+            doc = _spacy_nlp(req.headline)
+            ents = list(set(ent.text for ent in doc.ents if ent.label_ in ["ORG", "PERSON"]))
+            
         return PredictResponse(
             headline=req.headline,
             label=label,
             confidence=confidence,
             model_version=_model_version,
+            entities=ents,
         )
     except Exception as exc:
         _stats["errors_total"] += 1
@@ -166,12 +184,19 @@ def batch_predict(req: BatchPredictRequest):
             label = LABEL_ALIAS.get(result["label"].lower(), "neutral")
             confidence = round(result["score"], 4)
             _stats[f"requests_{label}"] += 1
+            
+            ents = []
+            if _spacy_nlp:
+                doc = _spacy_nlp(headline)
+                ents = list(set(ent.text for ent in doc.ents if ent.label_ in ["ORG", "PERSON"]))
+                
             responses.append(
                 PredictResponse(
                     headline=headline,
                     label=label,
                     confidence=confidence,
                     model_version=_model_version,
+                    entities=ents,
                 )
             )
         return BatchPredictResponse(results=responses)

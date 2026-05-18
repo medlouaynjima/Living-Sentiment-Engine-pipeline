@@ -81,27 +81,41 @@ def load_raw_data(raw_dir: Path) -> pd.DataFrame:
 
 
 def label_headlines(df: pd.DataFrame, nlp_pipeline, batch_size: int = 32) -> pd.DataFrame:
-    """Run zero-shot FinBERT inference and add 'label' + 'confidence' columns."""
+    """Run zero-shot FinBERT inference and add 'label', 'confidence', and 'entities' columns."""
+    import spacy
+    try:
+        nlp = spacy.load("en_core_web_sm")
+    except OSError:
+        import spacy.cli
+        spacy.cli.download("en_core_web_sm")
+        nlp = spacy.load("en_core_web_sm")
+
     titles = df["title"].tolist()
     if not titles:
         return df
 
     log.info("Running inference on %d headlines (batch_size=%d)…", len(titles), batch_size)
 
-    labels, confidences = [], []
+    labels, confidences, entities_list = [], [], []
     for i in range(0, len(titles), batch_size):
         batch = titles[i : i + batch_size]
         results = nlp_pipeline(batch)
-        for res in results:
+        for text, res in zip(batch, results):
             raw_label = res["label"].lower()
             labels.append(LABEL_MAP.get(raw_label, "neutral"))
             confidences.append(round(res["score"], 4))
+            
+            doc = nlp(text)
+            ents = [ent.text for ent in doc.ents if ent.label_ in ["ORG", "PERSON"]]
+            entities_list.append(", ".join(set(ents)))
+            
         if (i // batch_size) % 5 == 0:
             log.info("  Processed %d / %d", min(i + batch_size, len(titles)), len(titles))
 
     df = df.copy()
     df["label"] = labels
     df["confidence"] = confidences
+    df["entities"] = entities_list
     return df
 
 

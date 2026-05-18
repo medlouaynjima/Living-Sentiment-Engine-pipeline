@@ -257,7 +257,7 @@ def main():
 
     if drift_detected:
         log.warning("Drift detected! Consider triggering retraining.")
-        sys.exit(1)
+
 
 
 if __name__ == "__main__":

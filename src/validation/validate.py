@@ -22,6 +22,8 @@ import logging
 import sys
 from pathlib import Path
 
+import mlflow
+from mlflow.tracking import MlflowClient
 import numpy as np
 import pandas as pd
 import yaml
@@ -100,13 +102,38 @@ def check_bias(df: pd.DataFrame, keywords: list[str], max_dominance: float) -> t
     return True, "OK"
 
 
-def promote_candidate(candidate_dir: Path, champion_dir: Path):
-    """Copy candidate model files to champion directory."""
+def promote_candidate(candidate_dir: Path, champion_dir: Path, run_id: str, cfg: dict):
+    """Copy candidate model files to champion directory and register in MLflow."""
     import shutil
+    import os
     if champion_dir.exists():
         shutil.rmtree(champion_dir)
     shutil.copytree(candidate_dir, champion_dir)
-    log.info("✅ Candidate promoted → %s", champion_dir)
+    log.info("✅ Candidate promoted locally → %s", champion_dir)
+    
+    if run_id:
+        try:
+            tracking_uri = os.environ.get("MLFLOW_TRACKING_URI", cfg.get("mlflow", {}).get("tracking_uri", "sqlite:///mlflow.db"))
+            mlflow.set_tracking_uri(tracking_uri)
+            client = MlflowClient()
+            model_name = "LivingSentimentModel"
+            
+            try:
+                client.create_registered_model(model_name)
+            except Exception:
+                pass
+                
+            model_uri = f"runs:/{run_id}/model"
+            mv = client.create_model_version(model_name, model_uri, run_id)
+            client.transition_model_version_stage(
+                name=model_name,
+                version=mv.version,
+                stage="Production",
+                archive_existing_versions=True
+            )
+            log.info("✅ Model registered in MLflow Registry as version %s (Production)", mv.version)
+        except Exception as e:
+            log.warning("MLflow Registry error: %s", e)
 
 
 def main():
@@ -214,7 +241,8 @@ def main():
 
     # ── Promote if all checks pass ────────────────────────────────────────────
     if passed:
-        promote_candidate(candidate_dir, champion_dir)
+        run_id = meta.get("run_id", "")
+        promote_candidate(candidate_dir, champion_dir, run_id, cfg)
     else:
         log.error("❌ Validation FAILED — candidate NOT promoted.")
         sys.exit(1)

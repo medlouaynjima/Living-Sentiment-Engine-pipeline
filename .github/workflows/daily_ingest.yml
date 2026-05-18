@@ -28,7 +28,9 @@ jobs:
           cache: pip
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: |
+          pip install -r requirements.txt
+          python -m spacy download en_core_web_sm
 
       - name: Initialise DVC (first run creates .dvc/)
         run: |
@@ -40,10 +42,13 @@ jobs:
         env:
           NEWSAPI_KEY: ${{ secrets.NEWSAPI_KEY }}
 
-      - name: Scrape today's headlines
+      - name: Scrape today's headlines (NewsAPI)
         run: python src/ingestion/newsapi_scraper.py
         env:
           NEWSAPI_KEY: ${{ secrets.NEWSAPI_KEY }}
+
+      - name: Scrape today's headlines (Yahoo Finance)
+        run: python src/ingestion/yfinance_scraper.py
 
       - name: Label new headlines
         run: python src/labeling/label_pipeline.py
@@ -66,22 +71,44 @@ jobs:
           git diff --cached --quiet || git commit -m "chore: daily data update $(date +%Y-%m-%d)"
           git push || echo "Nothing new to push"
 
-      - name: Check retraining threshold
+      - name: Run Drift Monitor
+        run: python src/monitoring/drift_monitor.py
+
+      - name: Check retraining threshold & drift
         id: check_retrain
         run: |
           python -c "
-          import pandas as pd, sys
+          import pandas as pd, json, sys, glob
+          should_retrain = False
+          
+          # Check row count
           try:
               df = pd.read_csv('data/labeled/dataset.csv')
-              threshold = 500
+              threshold = 1000
               if len(df) >= threshold:
                   print(f'Threshold met ({len(df)} rows) — triggering retraining')
-                  sys.exit(0)
+                  should_retrain = True
               else:
-                  print(f'Not enough data: {len(df)} / {threshold}')
-                  sys.exit(1)
+                  print(f'Not enough data for hard threshold: {len(df)} / {threshold}')
           except FileNotFoundError:
               print('No dataset yet')
+              
+          # Check drift
+          try:
+              latest_report = sorted(glob.glob('reports/drift_summary_*.json'))[-1]
+              with open(latest_report) as f:
+                  data = json.load(f)
+                  if data.get('drift_detected', False):
+                      print('Drift detected! Triggering retraining autonomously.')
+                      should_retrain = True
+                  else:
+                      print('No drift detected.')
+          except Exception as e:
+              print(f'Could not read drift report: {e}')
+              
+          if should_retrain:
+              sys.exit(0)
+          else:
               sys.exit(1)
           " && echo "should_retrain=true" >> $GITHUB_OUTPUT || echo "should_retrain=false" >> $GITHUB_OUTPUT
 

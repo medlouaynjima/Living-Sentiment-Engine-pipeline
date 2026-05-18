@@ -144,8 +144,8 @@ with st.sidebar:
 st.title("🧠 The Living Sentiment Engine")
 st.caption(f"Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
-tab1, tab2, tab3, tab4 = st.tabs([
-    "📰 Live Feed", "📈 Trends", "🩺 Model Health", "🌊 Drift Report"
+tab1, tab2, tab_ent, tab3, tab4 = st.tabs([
+    "📰 Live Feed", "📈 Trends", "🏢 Entities", "🩺 Model Health", "🌊 Drift Report"
 ])
 
 
@@ -193,6 +193,10 @@ with tab1:
             emoji = LABEL_EMOJIS.get(label, "⚪")
             conf_str = f"{float(confidence):.0%}" if confidence else ""
 
+            ents_str = ""
+            if "entities" in row and pd.notna(row["entities"]) and str(row["entities"]).strip():
+                ents_str = f" | 🏢 {row['entities']}"
+
             st.markdown(
                 f"""<div style='
                     background: {color}11;
@@ -203,7 +207,7 @@ with tab1:
                 '>
                 <span style='font-weight:600'>{emoji} {row.get('title','')}</span>
                 <br>
-                <small style='color:#888'>{row.get('source','')} — {label.upper()} {conf_str}</small>
+                <small style='color:#888'>{row.get('source','')} — {label.upper()} {conf_str}{ents_str}</small>
                 </div>""",
                 unsafe_allow_html=True,
             )
@@ -250,11 +254,11 @@ with tab2:
             for label, color in LABEL_COLORS.items():
                 fig.add_trace(go.Scatter(
                     x=daily["date"], y=daily[f"{label}_pct"],
-                    mode="lines+markers", name=label.capitalize(),
-                    line=dict(color=color, width=2.5),
-                    fill="tonexty" if label != "positive" else None,
+                    name=label.capitalize(), marker_color=color, stackgroup="one",
                 ))
-            fig.update_layout(yaxis_tickformat=".0%", yaxis_title="Sentiment Share")
+            fig.update_layout(yaxis_title="Percentage", yaxis_tickformat=".0%")
+
+        st.plotly_chart(fig, use_container_width=True)
 
         fig.update_layout(
             template="plotly_dark",
@@ -269,6 +273,53 @@ with tab2:
         # Data table
         with st.expander("📊 Raw daily counts"):
             st.dataframe(daily.sort_values("date", ascending=False), use_container_width=True)
+
+# ──────────────────────────────────────────────────────────────────────────────
+# TAB ENT: Entity Sentiment
+# ──────────────────────────────────────────────────────────────────────────────
+with tab_ent:
+    st.subheader("🏢 Entity Sentiment")
+    
+    df = load_labeled_data()
+    if df.empty or "entities" not in df.columns:
+        st.info("No entity data available yet. Run the updated pipeline.")
+    else:
+        # Explode entities
+        ent_rows = []
+        for _, row in df.dropna(subset=["entities"]).iterrows():
+            ents = [e.strip() for e in str(row["entities"]).split(",") if e.strip()]
+            for e in ents:
+                ent_rows.append({"entity": e, "label": row["label"]})
+                
+        if not ent_rows:
+            st.info("No entities extracted yet.")
+        else:
+            ent_df = pd.DataFrame(ent_rows)
+            
+            # Count mentions
+            top_ents = ent_df["entity"].value_counts().head(15).index.tolist()
+            top_ent_df = ent_df[ent_df["entity"].isin(top_ents)]
+            
+            ent_summary = top_ent_df.groupby(["entity", "label"]).size().unstack(fill_value=0)
+            
+            for col in ["positive", "negative", "neutral"]:
+                if col not in ent_summary.columns:
+                    ent_summary[col] = 0
+            
+            ent_summary["total"] = ent_summary.sum(axis=1)
+            ent_summary = ent_summary.sort_values("total", ascending=True)
+            
+            fig = go.Figure()
+            for label, color in LABEL_COLORS.items():
+                fig.add_trace(go.Bar(
+                    y=ent_summary.index,
+                    x=ent_summary[label],
+                    name=label.capitalize(),
+                    marker_color=color,
+                    orientation="h"
+                ))
+            fig.update_layout(barmode="stack", title="Top 15 Most Discussed Entities", height=600)
+            st.plotly_chart(fig, use_container_width=True)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
