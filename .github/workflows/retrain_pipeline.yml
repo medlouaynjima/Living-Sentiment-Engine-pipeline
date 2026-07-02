@@ -1,0 +1,140 @@
+name: Retrain Pipeline
+
+on:
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: "Why was retraining triggered?"
+        required: false
+        default: "Manual trigger"
+
+jobs:
+  retrain:
+    name: Train → Validate → Promote
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: write  # required for git push after promotion
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Pull latest data from Azure Blob
+        run: |
+          export AZURE_STORAGE_CONNECTION_STRING="$(echo "$RAW_CONN" | tr -d '\r' | sed -e 's/^"//' -e 's/"$//')"
+          dvc pull data/labeled/dataset.csv || echo "⚠️  dvc pull failed — check AZURE_STORAGE_CONNECTION_STRING secret"
+        env:
+          RAW_CONN: ${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}
+
+      - name: Fine-tune FinBERT
+        run: python -m src.training.train
+        env:
+          MLFLOW_TRACKING_URI: "sqlite:///mlflow.db"
+          PYTHONPATH: ${{ github.workspace }}
+
+      - name: Run validation gate
+        id: validate
+        run: python -m src.validation.validate
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        continue-on-error: true
+
+      - name: Check drift
+        run: python -m src.monitoring.drift_monitor || true
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+
+      - name: Report validation outcome
+        run: |
+          if [ -f reports/validation_report.json ]; then
+            python -c "
+          import json
+          with open('reports/validation_report.json') as f:
+              r = json.load(f)
+          passed = r.get('overall_passed', False)
+          checks = r.get('checks', {})
+          print('=== VALIDATION REPORT ===')
+          for name, data in checks.items():
+              icon = '✅' if data.get('passed') else '❌'
+              print(f'{icon} {name}: {data}')
+          print(f'Overall: {\"PASSED\" if passed else \"FAILED\"}')
+            "
+          fi
+
+      - name: Push latest reports to Azure Blob
+        if: always()
+        run: |
+          export AZURE_STORAGE_CONNECTION_STRING="$(echo "$RAW_CONN" | tr -d '\r' | sed -e 's/^"//' -e 's/"$//')"
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git rm -r --cached reports/validation_report.json 2>/dev/null || true
+          git rm -r --cached reports/drift 2>/dev/null || true
+          git commit -m "chore: untrack reports" || true
+          dvc commit -f reports/drift reports/validation_report.json -v
+          dvc push reports/drift reports/validation_report.json -v
+          git add dvc.lock
+          git commit -m "chore: push latest reports to dvc cache" || true
+          git pull --rebase origin main || true
+          git push || true
+        env:
+          RAW_CONN: ${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}
+
+      - name: Push promoted model to Azure Blob
+        if: steps.validate.outcome == 'success'
+        run: |
+          export AZURE_STORAGE_CONNECTION_STRING="$(echo "$RAW_CONN" | tr -d '\r' | sed -e 's/^"//' -e 's/"$//')"
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git rm -r --cached reports/validation_report.json 2>/dev/null || true
+          git commit -m "chore: untrack validation_report.json" || true
+          dvc commit -f models/champion
+          dvc push models/champion
+        env:
+          RAW_CONN: ${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}
+
+      - name: Commit champion model lock
+        if: steps.validate.outcome == 'success'
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add dvc.lock models/
+          git diff --cached --quiet || git commit -m "feat: promote new champion model $(date +%Y-%m-%d)"
+          git pull --rebase origin main || true
+          git push || true
+
+      - name: Fail if validation didn't pass
+        if: steps.validate.outcome != 'success'
+        run: |
+          echo "❌ Validation gate failed — champion NOT promoted"
+          exit 1
+
+  lint-and-test:
+    name: Lint & Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Lint
+        run: ruff check . --select E,W,F --ignore E501
+      - name: Unit tests
+        run: pytest tests/ -v --tb=short -x
+
+  deploy:
+    name: Trigger Deployment
+    needs: [retrain]
+    uses: ./.github/workflows/deploy_vm.yml
+    secrets: inherit

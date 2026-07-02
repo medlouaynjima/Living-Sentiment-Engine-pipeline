@@ -1,0 +1,6 @@
+[core]
+    remote = azure
+['remote "azure"']
+    url = azure://sentimentengine/
+    # Connection string is read from AZURE_STORAGE_CONNECTION_STRING env var.
+    # Never commit credentials here — store them in .env or GitHub Secrets.

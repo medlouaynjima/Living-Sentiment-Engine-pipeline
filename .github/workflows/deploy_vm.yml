@@ -1,0 +1,76 @@
+name: Deploy Model to Azure VM
+
+# Triggers automatically after the Retrain Pipeline succeeds on main.
+# Pulls the new champion model on the VM and restarts only the API container.
+on:
+  workflow_run:
+    workflows: ["Retrain Pipeline"]
+    types: [completed]
+    branches: [main]
+
+  # Also allow manual trigger for recovery / first-time setup
+  workflow_dispatch:
+  
+  # Allow other workflows (like retrain_pipeline) to call this directly
+  workflow_call:
+
+jobs:
+  deploy:
+    name: Pull new model & restart API on Azure VM
+    runs-on: ubuntu-latest
+    # Only run if the triggering workflow actually succeeded
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call' || github.event.workflow_run.conclusion == 'success' }}
+    steps:
+      - name: Pull new model & restart API via SSH
+        env:
+          SSH_PRIVATE_KEY_B64: ${{ secrets.SSH_PRIVATE_KEY_B64 }}
+          VM_IP: ${{ secrets.VM_IP }}
+          SSH_USERNAME: ${{ secrets.SSH_USERNAME }}
+          AZURE_STORAGE_CONNECTION_STRING: ${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}
+        run: |
+          set -e
+
+          # Decode base64 key — avoids all CRLF/newline corruption from Windows.
+          echo "${SSH_PRIVATE_KEY_B64}" | base64 --decode > /tmp/id_rsa
+          chmod 600 /tmp/id_rsa
+
+          # Validate the key — will fail immediately if corrupted.
+          echo "Key fingerprint:"
+          ssh-keygen -lf /tmp/id_rsa
+
+          # Sanitize the connection string to remove surrounding quotes and CRLFs
+          CLEAN_AZURE_STORAGE_CONNECTION_STRING="$(echo "${AZURE_STORAGE_CONNECTION_STRING}" | tr -d '\r' | sed -e 's/^"//' -e 's/"$//')"
+
+          # SSH into the VM and run all deployment commands.
+          # -vvv is removed so we can see the actual script output.
+          ssh -o BatchMode=yes \
+              -o StrictHostKeyChecking=no \
+              -o ServerAliveInterval=30 \
+              -i /tmp/id_rsa \
+              "${SSH_USERNAME}@${VM_IP}" \
+              "set -e
+               export PATH=\$HOME/.local/bin:/usr/local/bin:\$PATH
+               cd /opt/mlops
+               # Take ownership of the repo (it was originally cloned by root during startup)
+               sudo chown -R azureuser:azureuser /opt/mlops
+               git config --global --add safe.directory /opt/mlops
+               echo '▶ Pulling latest code...'
+               git pull origin main
+               echo '▶ Pulling new champion model from Azure Blob...'
+               export AZURE_STORAGE_CONNECTION_STRING='${CLEAN_AZURE_STORAGE_CONNECTION_STRING}'
+               if ! command -v dvc &> /dev/null; then
+                   echo "Installing pipx and DVC..."
+                   sudo apt-get update -qq
+                   sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq pipx
+                   pipx install "dvc[azure]"
+               fi
+               dvc pull models/champion reports/drift reports/validation_report.json --force || echo "⚠️ dvc pull warned about missing cache, ignoring..."
+               echo '▶ Checking reports directory...'
+               ls -la reports/ || echo "no reports dir"
+               ls -la reports/drift/ || echo "no reports/drift dir"
+               echo '▶ Spinning up any new services (like Caddy)...'
+               sudo -E docker-compose up -d
+               echo '▶ Restarting API and Dashboard containers...'
+               sudo -E docker-compose restart api dashboard
+               echo '✅ Deployment complete'
+               sudo -E docker-compose ps"

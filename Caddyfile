@@ -1,0 +1,4 @@
+living-sentiment.swedencentral.cloudapp.azure.com {
+    # Reverse proxy to Streamlit dashboard
+    reverse_proxy dashboard:8501
+}

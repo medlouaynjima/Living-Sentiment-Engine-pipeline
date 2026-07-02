@@ -1,0 +1,86 @@
+version: "3.9"
+
+services:
+  # ── FastAPI Inference Service ───────────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: src/serving/Dockerfile
+    container_name: sentiment-api
+    environment:
+      - NEWSAPI_KEY=${NEWSAPI_KEY}
+      - CONFIG_PATH=configs/config.yaml
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+      - AZURE_STORAGE_CONNECTION_STRING=${AZURE_STORAGE_CONNECTION_STRING}
+    volumes:
+      - ./models:/app/models
+      - ./data:/app/data
+      - ./reports:/app/reports
+    depends_on:
+      - mlflow
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7860/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ── MLflow Tracking Server ──────────────────────────────────────────────────
+  mlflow:
+    image: python:3.11-slim
+    container_name: sentiment-mlflow
+    command: >
+      bash -c "pip install mlflow --quiet &&
+               mlflow server
+               --host 0.0.0.0
+               --port 5000
+               --backend-store-uri sqlite:///mlflow/mlflow.db
+               --default-artifact-root /mlflow/artifacts"
+    volumes:
+      - mlflow_data:/mlflow
+    restart: unless-stopped
+
+  # ── Streamlit Dashboard ─────────────────────────────────────────────────────
+  dashboard:
+    image: python:3.11-slim
+    container_name: sentiment-dashboard
+    working_dir: /app
+    command: >
+      bash -c "pip install streamlit plotly pandas pyyaml requests --quiet &&
+               streamlit run src/dashboard/streamlit_app.py
+               --server.port 8501
+               --server.address 0.0.0.0
+               --server.headless true"
+    ports:
+      - "8501:8501"
+    environment:
+      - CONFIG_PATH=configs/config.yaml
+      - API_BASE_URL=http://api:7860
+      - AZURE_STORAGE_CONNECTION_STRING=${AZURE_STORAGE_CONNECTION_STRING}
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+    volumes:
+      - .:/app
+    depends_on:
+      - api
+      - mlflow
+    restart: unless-stopped
+
+  # ── Caddy Reverse Proxy (HTTPS) ─────────────────────────────────────────────
+  caddy:
+    image: caddy:2-alpine
+    container_name: sentiment-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - dashboard
+
+volumes:
+  mlflow_data:
+  caddy_data:
+  caddy_config:

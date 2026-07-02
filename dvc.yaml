@@ -1,0 +1,59 @@
+stages:
+  scrape:
+    cmd: python src/ingestion/newsapi_scraper.py
+    deps:
+      - src/ingestion/newsapi_scraper.py
+      - configs/config.yaml
+    outs:
+      - data/raw:
+          cache: true
+
+  label:
+    cmd: python src/labeling/label_pipeline.py
+    deps:
+      - src/labeling/label_pipeline.py
+      - configs/config.yaml
+      - data/raw
+    outs:
+      - data/labeled/dataset.csv:
+          cache: true
+
+  train:
+    cmd: python src/training/train.py
+    deps:
+      - src/training/train.py
+      - configs/config.yaml
+      - data/labeled/dataset.csv
+    params:
+      - params.yaml:
+          - training.epochs
+          - training.batch_size
+          - training.learning_rate
+    outs:
+      - models/candidate:
+          cache: true
+
+  validate:
+    cmd: python src/validation/validate.py
+    deps:
+      - src/validation/validate.py
+      - configs/config.yaml
+      - models/candidate
+      - data/labeled/dataset.csv
+    outs:
+      - models/champion:
+          cache: true
+          persist: true
+      - reports/validation_report.json:
+          cache: true
+
+  monitor:
+    cmd: python src/monitoring/drift_monitor.py
+    deps:
+      - src/monitoring/drift_monitor.py
+      - configs/config.yaml
+      - data/labeled/dataset.csv
+    outs:
+      - reports/drift:
+          cache: true
+          persist: true

@@ -1,0 +1,137 @@
+name: Daily Data Ingestion
+
+on:
+  schedule:
+    - cron: "0 6 * * *"   # Every day at 06:00 UTC
+  workflow_dispatch:        # Allow manual trigger
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true   # suppress Node.js 20 deprecation warnings
+
+jobs:
+  ingest:
+    name: Scrape & Label Headlines
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write  # Required to push commits back to the repo
+      actions: write   # Required to trigger the retrain workflow
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          python -m spacy download en_core_web_sm
+
+      - name: Pull existing data from Azure Blob
+        run: |
+          export AZURE_STORAGE_CONNECTION_STRING="$(echo "$RAW_CONN" | tr -d '\r' | sed -e 's/^"//' -e 's/"$//')"
+          dvc pull data/raw data/labeled/dataset.csv || echo "⚠️  dvc pull failed — check AZURE_STORAGE_CONNECTION_STRING secret"
+        env:
+          RAW_CONN: ${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}
+
+      - name: Scrape today's headlines (NewsAPI)
+        run: python -m src.ingestion.newsapi_scraper
+        env:
+          NEWSAPI_KEY: ${{ secrets.NEWSAPI_KEY }}
+          PYTHONPATH: ${{ github.workspace }}
+
+      - name: Scrape today's headlines (Yahoo Finance)
+        run: python -m src.ingestion.yfinance_scraper
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+
+      - name: Label new headlines
+        run: python -m src.labeling.label_pipeline
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+
+      - name: Run Drift Monitor
+        run: python -m src.monitoring.drift_monitor
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+
+      - name: Push new data to Azure Blob
+        run: |
+          export AZURE_STORAGE_CONNECTION_STRING="$(echo "$RAW_CONN" | tr -d '\r' | sed -e 's/^"//' -e 's/"$//')"
+          dvc commit -f data/raw data/labeled/dataset.csv reports/drift || true
+          dvc push || echo "⚠️  dvc push failed — check AZURE_STORAGE_CONNECTION_STRING secret"
+        env:
+          RAW_CONN: ${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}
+
+      - name: Count labeled rows
+        id: count_rows
+        run: |
+          ROWS=$(python -c "import pandas as pd; df = pd.read_csv('data/labeled/dataset.csv'); print(len(df))" 2>/dev/null || echo "0")
+          echo "total_rows=$ROWS" >> $GITHUB_OUTPUT
+          echo "Total labeled rows: $ROWS"
+
+      - name: Commit data files
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          # Add files safely; ignore errors if some files don't exist yet.
+          # Note: .dvc/config is NOT added here to avoid committing runtime remote changes.
+          git add data/ dvc.lock dvc.yaml 2>/dev/null || true
+          git diff --cached --quiet || git commit -m "chore: daily data update $(date +%Y-%m-%d)"
+          git push || echo "Nothing new to push"
+
+      - name: Check retraining threshold & drift
+        id: check_retrain
+        run: |
+          python -c "
+          import pandas as pd, json, sys, glob
+          should_retrain = False
+          
+          # Check row count
+          try:
+              df = pd.read_csv('data/labeled/dataset.csv')
+              threshold = 1000
+              if len(df) >= threshold:
+                  print(f'Threshold met ({len(df)} rows) — triggering retraining')
+                  should_retrain = True
+              else:
+                  print(f'Not enough data for hard threshold: {len(df)} / {threshold}')
+          except FileNotFoundError:
+              print('No dataset yet')
+              
+          # Check drift
+          try:
+              latest_report = sorted(glob.glob('reports/drift/drift_summary_*.json'))[-1]
+              with open(latest_report) as f:
+                  data = json.load(f)
+                  if data.get('drift_detected', False):
+                      print('Drift detected! Triggering retraining autonomously.')
+                      should_retrain = True
+                  else:
+                      print('No drift detected.')
+          except Exception as e:
+              print(f'Could not read drift report: {e}')
+              
+          if should_retrain:
+              sys.exit(0)
+          else:
+              sys.exit(1)
+          " && echo "should_retrain=true" >> $GITHUB_OUTPUT || echo "should_retrain=false" >> $GITHUB_OUTPUT
+
+      - name: Trigger retraining workflow
+        if: steps.check_retrain.outputs.should_retrain == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'retrain_pipeline.yml',
+              ref: 'main',
+            });
+
