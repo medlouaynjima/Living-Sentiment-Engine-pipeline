@@ -12,8 +12,8 @@
 The system is deployed on Microsoft Azure using a `Standard B2s_v2` instance (2 vCPUs, 8 GB RAM) located in **Sweden Central**, fully automated via Docker and daily cron pipelines.
 
 * 📊 **Interactive Streamlit Dashboard (Secure):** [https://living-sentiment.swedencentral.cloudapp.azure.com](https://living-sentiment.swedencentral.cloudapp.azure.com)
-* 🧠 **FastAPI Inference Documentation:** [http://20.91.226.116:8000/docs](http://20.91.226.116:8000/docs)
-* 🗃️ **MLflow Model Registry UI:** [http://20.91.226.116:5000](http://20.91.226.116:5000)
+* 🧠 **FastAPI Inference Engine:** *(Secured behind internal Docker network)*
+* 🗃️ **MLflow Model Registry:** *(Secured behind internal Docker network)*
 
 ---
 
