@@ -77,8 +77,8 @@ stages:
       size: 2796467
     - path: models/candidate
       hash: md5
-      md5: 4ca48921e38abb607d2c540ed29012c1.dir
-      size: 438674864
+      md5: 4acafc415ba05fa1633f6c80e7e0234e.dir
+      size: 438674863
       nfiles: 5
     - path: src/validation/validate.py
       hash: md5
@@ -87,13 +87,13 @@ stages:
     outs:
     - path: models/champion
       hash: md5
-      md5: 4ca48921e38abb607d2c540ed29012c1.dir
-      size: 438674864
+      md5: 4acafc415ba05fa1633f6c80e7e0234e.dir
+      size: 438674863
       nfiles: 5
     - path: reports/validation_report.json
       hash: md5
-      md5: 69946ccc4b7b050e14a501c6d033cf83
-      size: 680
+      md5: f6e486a8af30adda9d20a79dcde51546
+      size: 678
   monitor:
     cmd: python src/monitoring/drift_monitor.py
     deps:
