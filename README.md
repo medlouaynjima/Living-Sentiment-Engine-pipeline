@@ -1,10 +1,22 @@
 # 🧠 The Living Sentiment Engine
 
-> A production-grade MLOps pipeline for real-time financial news sentiment analysis powered by FinBERT.
+> A production-oriented MLOps pipeline for real-time financial news sentiment analysis powered by FinBERT.
+
+[![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/release/python-3120/)
+[![Docker](https://img.shields.io/badge/docker-%230db7ed.svg?logo=docker&logoColor=white)](https://www.docker.com/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-005571?logo=fastapi)](https://fastapi.tiangolo.com/)
+[![MLflow](https://img.shields.io/badge/mlflow-%23d9ead3.svg?logo=mlflow&logoColor=blue)](https://mlflow.org/)
+[![DVC](https://img.shields.io/badge/-DVC-945DD6?logo=data-version-control&logoColor=white)](https://dvc.org/)
+[![Azure](https://img.shields.io/badge/azure-%230072C6.svg?logo=microsoftazure&logoColor=white)](https://azure.microsoft.com/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 [![Daily Ingest](https://github.com/medlouaynjima/Living-Sentiment-Engine-pipeline/actions/workflows/daily_ingest.yml/badge.svg)](https://github.com/medlouaynjima/Living-Sentiment-Engine-pipeline/actions/workflows/daily_ingest.yml)
 [![Retrain Pipeline](https://github.com/medlouaynjima/Living-Sentiment-Engine-pipeline/actions/workflows/retrain_pipeline.yml/badge.svg)](https://github.com/medlouaynjima/Living-Sentiment-Engine-pipeline/actions/workflows/retrain_pipeline.yml)
 [![Deploy to VM](https://github.com/medlouaynjima/Living-Sentiment-Engine-pipeline/actions/workflows/deploy_vm.yml/badge.svg)](https://github.com/medlouaynjima/Living-Sentiment-Engine-pipeline/actions/workflows/deploy_vm.yml)
+
+## Why this project?
+
+Most sentiment analysis projects stop after training a model. This project explores what happens after deployment: monitoring model health, detecting drift, validating retrained models, versioning artifacts, and automating deployment.
 
 ---
 
@@ -12,8 +24,8 @@
 The system is deployed on Microsoft Azure using a `Standard B2s_v2` instance (2 vCPUs, 8 GB RAM) located in **Sweden Central**, fully automated via Docker and daily cron pipelines.
 
 * 📊 **Interactive Streamlit Dashboard (Secure):** [https://living-sentiment.swedencentral.cloudapp.azure.com](https://living-sentiment.swedencentral.cloudapp.azure.com)
-* 🧠 **FastAPI Inference Engine:** *(Secured behind internal Docker network)*
-* 🗃️ **MLflow Model Registry:** *(Secured behind internal Docker network)*
+* 🧠 **FastAPI Inference Documentation:** *Internal Docker Network (Port 8000)*
+* 🗃️ **MLflow Model Registry UI:** *Internal Docker Network (Port 5000)*
 
 ---
 
@@ -21,19 +33,17 @@ The system is deployed on Microsoft Azure using a `Standard B2s_v2` instance (2 
 
 The system features a **Bloomberg Terminal-style** dark-mode dashboard built with Streamlit and custom CSS, providing a premium, professional interface for monitoring live sentiment, trends, entity extraction, model health, and data drift.
 
-![Streamlit Dashboard](assets/dashboard.png)
+![Streamlit Dashboard](assets/dashboard.gif)
 
 ---
 
 ## System Architecture
 
-```
-News Sources → Scraper → Labeling → Drift Monitor
-                                      ↓
-                             Retraining Trigger
-                                      ↓
-Fine-tune → Validation → MLflow Registry → FastAPI → Dashboard (via Caddy HTTPS)
-```
+![System Architecture](assets/architecture.png)
+
+## CI Pipeline Workflow
+
+![CI Pipeline Workflow](assets/ci_pipeline.png)
 
 ## Tech Stack
 
@@ -61,6 +71,8 @@ Fine-tune → Validation → MLflow Registry → FastAPI → Dashboard (via Cadd
 ---
 
 ## 📊 System Metrics
+
+*Benchmarked locally using Locust:*
 
 | Metric | Target / Measured Value |
 |---|---|
