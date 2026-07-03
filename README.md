@@ -33,7 +33,7 @@ The system is deployed on Microsoft Azure using a `Standard B2s_v2` instance (2 
 
 The system features a **Bloomberg Terminal-style** dark-mode dashboard built with Streamlit and custom CSS, providing a premium, professional interface for monitoring live sentiment, trends, entity extraction, model health, and data drift.
 
-![Streamlit Dashboard](assets/dashboard.gif)
+![Streamlit Dashboard](assets/dashboard.png)
 
 ---
 
