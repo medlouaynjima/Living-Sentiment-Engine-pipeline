@@ -51,8 +51,6 @@ jobs:
               "set -e
                export PATH=\$HOME/.local/bin:/usr/local/bin:\$PATH
                cd /opt/mlops
-               # Take ownership of the repo (it was originally cloned by root during startup)
-               sudo chown -R azureuser:azureuser /opt/mlops
                git config --global --add safe.directory /opt/mlops
                echo '▶ Pulling latest code...'
                git fetch origin main
@@ -60,18 +58,18 @@ jobs:
                echo '▶ Pulling new champion model from Azure Blob...'
                export AZURE_STORAGE_CONNECTION_STRING='${CLEAN_AZURE_STORAGE_CONNECTION_STRING}'
                if ! command -v dvc &> /dev/null; then
-                   echo "Installing pipx and DVC..."
-                   sudo apt-get update -qq
-                   sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq pipx
-                   pipx install "dvc[azure]"
+                   echo 'Installing DVC (user scope, no sudo)...'
+                   pip3 install --user 'dvc[azure]' --break-system-packages 2>/dev/null \
+                       || pip3 install --user 'dvc[azure]'
                fi
-               dvc pull models/champion reports/drift reports/validation_report.json --force || echo "⚠️ dvc pull warned about missing cache, ignoring..."
+               dvc pull models/champion reports/drift reports/validation_report.json --force \
+                   || echo '⚠️ dvc pull warned about missing cache, ignoring...'
                echo '▶ Checking reports directory...'
-               ls -la reports/ || echo "no reports dir"
-               ls -la reports/drift/ || echo "no reports/drift dir"
+               ls -la reports/ || echo 'no reports dir'
+               ls -la reports/drift/ || echo 'no reports/drift dir'
                echo '▶ Spinning up any new services (like Caddy)...'
-               sudo -E docker-compose up -d
+               docker-compose up -d
                echo '▶ Restarting API and Dashboard containers...'
-               sudo -E docker-compose restart api dashboard
+               docker-compose restart api dashboard
                echo '✅ Deployment complete'
-               sudo -E docker-compose ps"
+               docker-compose ps"

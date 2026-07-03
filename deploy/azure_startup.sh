@@ -49,6 +49,13 @@ pip3 install "dvc[azure]" --quiet --break-system-packages 2>/dev/null \
 REPO_URL="https://github.com/medlouaynjima/Living-Sentiment-Engine-pipeline.git"
 APP_DIR="/opt/mlops"
 
+# Azure Linux VMs use azureuser for SSH deploys — must own the repo and run docker without sudo.
+if id azureuser &>/dev/null; then
+    DEPLOY_USER=azureuser
+else
+    DEPLOY_USER="$(logname 2>/dev/null || echo root)"
+fi
+
 if [ ! -d "$APP_DIR/.git" ]; then
     echo "▶ Cloning repository…"
     git clone "$REPO_URL" "$APP_DIR"
@@ -58,6 +65,8 @@ else
 fi
 
 cd "$APP_DIR"
+chown -R "$DEPLOY_USER:$DEPLOY_USER" "$APP_DIR"
+usermod -aG docker "$DEPLOY_USER" 2>/dev/null || true
 
 # ── 6. Write .env with all required secrets ───────────────────────────────────
 echo "▶ Writing .env…"
@@ -81,6 +90,9 @@ fi
 echo "▶ Starting Docker Compose stack…"
 docker-compose down 2>/dev/null || true
 docker-compose up --build -d
+
+# Ensure deploy user can git pull / dvc pull / docker-compose over SSH (no sudo).
+chown -R "$DEPLOY_USER:$DEPLOY_USER" "$APP_DIR"
 
 echo ""
 echo "✅ Azure Deployment Complete!"
