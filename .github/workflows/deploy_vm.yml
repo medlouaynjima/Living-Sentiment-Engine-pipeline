@@ -69,19 +69,6 @@ jobs:
                ls -la reports/drift/ || echo 'no reports/drift dir'
                echo '▶ Spinning up any new services (like Caddy)...'
                docker-compose up -d
-               echo '▶ Recreating MLflow (localhost:5000 bind for SSH tunnel access)...'
-               docker-compose up -d --force-recreate mlflow
-               echo '▶ Waiting for MLflow to listen on 127.0.0.1:5000...'
-               for i in \$(seq 1 30); do
-                 if curl -sf http://127.0.0.1:5000 >/dev/null 2>&1; then
-                   echo '✅ MLflow is up on localhost:5000'
-                   break
-                 fi
-                 if [ \"\$i\" -eq 30 ]; then
-                   echo '⚠️ MLflow not responding yet — may still be installing (pip). Check: docker-compose logs mlflow'
-                 fi
-                 sleep 5
-               done
                echo '▶ Restarting API and Dashboard containers...'
                docker-compose restart api dashboard
                echo '✅ Deployment complete'
