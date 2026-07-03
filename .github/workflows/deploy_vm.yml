@@ -55,8 +55,7 @@ jobs:
                sudo chown -R azureuser:azureuser /opt/mlops
                git config --global --add safe.directory /opt/mlops
                echo '▶ Pulling latest code...'
-               git fetch origin main
-               git reset --hard origin/main
+               git pull origin main
                echo '▶ Pulling new champion model from Azure Blob...'
                export AZURE_STORAGE_CONNECTION_STRING='${CLEAN_AZURE_STORAGE_CONNECTION_STRING}'
                if ! command -v dvc &> /dev/null; then

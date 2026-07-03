@@ -36,8 +36,6 @@ services:
                --port 5000
                --backend-store-uri sqlite:///mlflow/mlflow.db
                --default-artifact-root /mlflow/artifacts"
-    ports:
-      - "5000:5000"
     volumes:
       - mlflow_data:/mlflow
     restart: unless-stopped
