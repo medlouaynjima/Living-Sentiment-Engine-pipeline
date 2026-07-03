@@ -625,7 +625,7 @@ with tab3:
                 _status = "PASS" if _p else "FAIL"
                 _icon = "✓" if _p else "✗"
                 display_name = check_name.replace("_", " ").title()
-                
+
                 # Extract extra metrics if present
                 _metrics = ""
                 if check_name == "champion_comparison":
